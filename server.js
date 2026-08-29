@@ -16,8 +16,8 @@ app.post('/analyzeImage', upload.single('image'), async (req, res) => {
       return res.status(400).json({ error: 'No image uploaded' });
     }
 
-    // เปลี่ยนชื่อโมเดลเป็น gemini-2.5-flash (หรือ gemini-1.5-flash-latest)
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    // เปลี่ยนมาใช้โมเดลล่าสุดตามคำแนะนำใน Log
+    const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
 
     const imagePart = {
       inlineData: {
