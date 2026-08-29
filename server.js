@@ -22,8 +22,8 @@ app.post('/analyzeImage', upload.single('image'), async (req, res) => {
       return res.status(400).json({ error: 'No image uploaded' });
     }
 
-    // แก้ไขใช้โมเดลล่าสุดที่เสถียร
-    const visionModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    // แก้ไขชื่อโมเดลเป็น -latest เพื่อให้ระบบ API มองเห็น
+    const visionModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
     const imagePart = {
       inlineData: {
         data: req.file.buffer.toString('base64'),
@@ -43,13 +43,11 @@ If no text or code is visible, reply ONLY with "NO_CODE".`;
     if (detectedCode !== 'NO_CODE' && detectedCode.length > 0) {
       let formattedCode = detectedCode;
       
-      // ใช้ Regex จับแยกตัวอักษรและตัวเลขออกจากกัน (รองรับ jql 1, JQL-10, Jql10)
       const match = detectedCode.match(/([a-zA-Z]+)[^0-9]*([0-9]+)/);
-      
       if (match) {
-        const prefix = match[1].toUpperCase(); // แปลงตัวอักษรเป็นพิมพ์ใหญ่
-        const number = match[2].padStart(3, '0'); // เติมเลข 0 ด้านหน้าให้ครบ 3 หลัก
-        formattedCode = `${prefix}-${number}`; // จับมาต่อกันด้วยขีดกลาง
+        const prefix = match[1].toUpperCase(); 
+        const number = match[2].padStart(3, '0'); 
+        formattedCode = `${prefix}-${number}`; 
       }
 
       console.log('Original OCR:', detectedCode, '-> Formatted Code:', formattedCode);
@@ -63,7 +61,7 @@ Describe its color palette, pattern (e.g. pinstripe, floral, houndstooth, solid,
     const visualResult = await visionModel.generateContent([promptVisual, imagePart]);
     const fabricDescription = visualResult.response.text();
 
-    // เปลี่ยนมาใช้โมเดล embedding-001 ที่รองรับแน่นอน
+    // ใช้โมเดล embedding-001 ที่รองรับแน่นอน
     const embeddingModel = genAI.getGenerativeModel({ model: 'embedding-001' });
     const embeddingResult = await embeddingModel.embedContent(fabricDescription);
     const queryVector = embeddingResult.embedding.values;
@@ -71,7 +69,7 @@ Describe its color palette, pattern (e.g. pinstripe, floral, houndstooth, solid,
     // สั่งให้ Supabase ค้นหาภาพผ้าที่เหมือนที่สุด 1 รายการ
     const { data: matchedProducts, error } = await supabase.rpc('match_fabrics', {
       query_embedding: queryVector,
-      match_threshold: 0.5, // เกณฑ์ความคล้าย 50% ขึ้นไป
+      match_threshold: 0.5,
       match_count: 1
     });
 
