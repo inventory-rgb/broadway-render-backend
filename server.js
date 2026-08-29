@@ -8,7 +8,6 @@ app.use(cors());
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-// ดึง GEMINI_API_KEY จาก Environment Variable บน Render
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 app.post('/analyzeImage', upload.single('image'), async (req, res) => {
@@ -17,7 +16,8 @@ app.post('/analyzeImage', upload.single('image'), async (req, res) => {
       return res.status(400).json({ error: 'No image uploaded' });
     }
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    // เปลี่ยนชื่อโมเดลเป็น gemini-2.5-flash
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
     const imagePart = {
       inlineData: {
