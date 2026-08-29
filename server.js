@@ -8,8 +8,8 @@ app.use(cors());
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-// ดึง GEMINI_API_KEY จาก Environment บน Render
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+// ดึง GEMINI_API_KEY จาก Environment Variable บน Render
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 app.post('/analyzeImage', upload.single('image'), async (req, res) => {
   try {
@@ -38,5 +38,5 @@ app.post('/analyzeImage', upload.single('image'), async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => console.log(`Server is running on port ${PORT}`));
