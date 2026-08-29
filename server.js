@@ -38,10 +38,21 @@ If no text or code is visible, reply ONLY with "NO_CODE".`;
     const ocrResult = await visionModel.generateContent([promptOCR, imagePart]);
     const detectedCode = ocrResult.response.text().trim();
 
-    // ถ้าระบบอ่านเจอตัวหนังสือรหัสสินค้า ให้ส่งรหัสไปค้นหาบนเว็บได้ทันที
+    // ถ้าระบบอ่านเจอตัวหนังสือรหัสสินค้า ให้ทำการปรับ Format ก่อนส่งค้นหา
     if (detectedCode !== 'NO_CODE' && detectedCode.length > 0) {
-      console.log('Detected Code via OCR:', detectedCode);
-      return res.json({ keyword: detectedCode });
+      let formattedCode = detectedCode;
+      
+      // ใช้ Regex จับแยกตัวอักษรและตัวเลขออกจากกัน (รองรับ jql 1, JQL-10, Jql10)
+      const match = detectedCode.match(/([a-zA-Z]+)[^0-9]*([0-9]+)/);
+      
+      if (match) {
+        const prefix = match[1].toUpperCase(); // แปลงตัวอักษรเป็นพิมพ์ใหญ่ (เช่น jql -> JQL)
+        const number = match[2].padStart(3, '0'); // เติมเลข 0 ด้านหน้าให้ครบ 3 หลัก (เช่น 1 -> 001)
+        formattedCode = `${prefix}-${number}`; // จับมาต่อกันด้วยขีดกลาง (ได้เป็น JQL-001)
+      }
+
+      console.log('Original OCR:', detectedCode, '-> Formatted Code:', formattedCode);
+      return res.json({ keyword: formattedCode });
     }
 
     // 2. ถ้าไม่เจอรหัสสินค้า ให้ทำ Visual Pattern Matching สแกนความคล้ายของลายผ้า
