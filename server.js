@@ -22,7 +22,8 @@ app.post('/analyzeImage', upload.single('image'), async (req, res) => {
       return res.status(400).json({ error: 'No image uploaded' });
     }
 
-    const visionModel = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
+    // แก้ไขใช้โมเดลล่าสุดที่เสถียร
+    const visionModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
     const imagePart = {
       inlineData: {
         data: req.file.buffer.toString('base64'),
@@ -46,9 +47,9 @@ If no text or code is visible, reply ONLY with "NO_CODE".`;
       const match = detectedCode.match(/([a-zA-Z]+)[^0-9]*([0-9]+)/);
       
       if (match) {
-        const prefix = match[1].toUpperCase(); // แปลงตัวอักษรเป็นพิมพ์ใหญ่ (เช่น jql -> JQL)
-        const number = match[2].padStart(3, '0'); // เติมเลข 0 ด้านหน้าให้ครบ 3 หลัก (เช่น 1 -> 001)
-        formattedCode = `${prefix}-${number}`; // จับมาต่อกันด้วยขีดกลาง (ได้เป็น JQL-001)
+        const prefix = match[1].toUpperCase(); // แปลงตัวอักษรเป็นพิมพ์ใหญ่
+        const number = match[2].padStart(3, '0'); // เติมเลข 0 ด้านหน้าให้ครบ 3 หลัก
+        formattedCode = `${prefix}-${number}`; // จับมาต่อกันด้วยขีดกลาง
       }
 
       console.log('Original OCR:', detectedCode, '-> Formatted Code:', formattedCode);
@@ -62,8 +63,8 @@ Describe its color palette, pattern (e.g. pinstripe, floral, houndstooth, solid,
     const visualResult = await visionModel.generateContent([promptVisual, imagePart]);
     const fabricDescription = visualResult.response.text();
 
-    // แปลงลักษณะลายผ้าเป็น Vector
-    const embeddingModel = genAI.getGenerativeModel({ model: 'text-embedding-004' });
+    // เปลี่ยนมาใช้โมเดล embedding-001 ที่รองรับแน่นอน
+    const embeddingModel = genAI.getGenerativeModel({ model: 'embedding-001' });
     const embeddingResult = await embeddingModel.embedContent(fabricDescription);
     const queryVector = embeddingResult.embedding.values;
 
@@ -76,15 +77,13 @@ Describe its color palette, pattern (e.g. pinstripe, floral, houndstooth, solid,
 
     if (error) {
       console.error('Supabase error:', error);
-      // หากเกิดข้อผิดพลาด ให้ fallback ส่งคำค้นหมวดหมู่ทั่วไป
       return res.json({ keyword: 'Lining' });
     }
 
     if (matchedProducts && matchedProducts.length > 0) {
-      console.log('Matched Product Code:', matchedProducts[0].product_code);
+      console.log('Matched Product Code via Visual Search:', matchedProducts[0].product_code);
       res.json({ keyword: matchedProducts[0].product_code });
     } else {
-      // หากลายผ้าไม่ตรงกับในคลังเลย ให้คืนค่าหมวดหมู่หลัก
       res.json({ keyword: 'Lining' });
     }
 
