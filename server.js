@@ -22,8 +22,8 @@ app.post('/analyzeImage', upload.single('image'), async (req, res) => {
       return res.status(400).json({ error: 'No image uploaded' });
     }
 
-    // ใช้โมเดลอ่านภาพที่รองรับใน API Key ของคุณ
-    const visionModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    // แก้ไขเป็น gemini-3.6-flash ตามคำแนะนำของ Google API
+    const visionModel = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
     const imagePart = {
       inlineData: {
         data: req.file.buffer.toString('base64'),
@@ -61,7 +61,7 @@ Describe its color palette, pattern (e.g. pinstripe, floral, houndstooth, solid,
     const visualResult = await visionModel.generateContent([promptVisual, imagePart]);
     const fabricDescription = visualResult.response.text();
 
-    // ใช้โมเดลเวกเตอร์ที่รองรับใน API Key ของคุณ
+    // ใช้โมเดลเวกเตอร์ gemini-embedding-2 
     const embeddingModel = genAI.getGenerativeModel({ model: 'gemini-embedding-2' });
     const embeddingResult = await embeddingModel.embedContent(fabricDescription);
     const queryVector = embeddingResult.embedding.values;
