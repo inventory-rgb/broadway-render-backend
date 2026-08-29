@@ -22,7 +22,7 @@ app.post('/analyzeImage', upload.single('image'), async (req, res) => {
       return res.status(400).json({ error: 'No image uploaded' });
     }
 
-    // แก้ไขเป็น gemini-3.6-flash ตามคำแนะนำของ Google API
+    // ใช้โมเดล gemini-3.6-flash
     const visionModel = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
     const imagePart = {
       inlineData: {
@@ -54,9 +54,12 @@ If no text or code is visible, reply ONLY with "NO_CODE".`;
       return res.json({ keyword: formattedCode });
     }
 
-    // 2. ถ้าไม่เจอรหัสสินค้า ให้ทำ Visual Pattern Matching สแกนความคล้ายของลายผ้า
-    const promptVisual = `Analyze this fabric swatch in extreme detail. 
-Describe its color palette, pattern (e.g. pinstripe, floral, houndstooth, solid, paisley), weave texture, material visual style, and key visual attributes in English.`;
+    // 2. ทำ Visual Pattern Matching (เน้น ลายผ้า และ สี เป็นหลัก)
+    const promptVisual = `Analyze this fabric swatch and describe it strictly in this format for vector matching:
+PATTERN: [Identify if it is Solid/Plain, Floral, Stripe, Plaid, Houndstooth, etc. Be very specific]
+COLOR: [Identify the dominant primary color and any secondary colors]
+TEXTURE: [Describe the weave or visual material surface]
+Keep the description concise and prioritize Pattern and Color keywords.`;
 
     const visualResult = await visionModel.generateContent([promptVisual, imagePart]);
     const fabricDescription = visualResult.response.text();
@@ -66,11 +69,11 @@ Describe its color palette, pattern (e.g. pinstripe, floral, houndstooth, solid,
     const embeddingResult = await embeddingModel.embedContent(fabricDescription);
     const queryVector = embeddingResult.embedding.values;
 
-    // สั่งให้ Supabase ค้นหาภาพผ้าที่เหมือนที่สุด 1 รายการ
+    // สั่งให้ Supabase ค้นหาภาพผ้าที่เหมือนที่สุด และคล้ายรองลงมา
     const { data: matchedProducts, error } = await supabase.rpc('match_fabrics', {
       query_embedding: queryVector,
-      match_threshold: 0.5,
-      match_count: 1
+      match_threshold: 0.15, // ลดเกณฑ์ลงเหลือ 15% เพื่อให้ระบบยืดหยุ่น จับคู่ภาพที่คล้ายกันได้
+      match_count: 5         // ค้นหาเผื่อไว้ 5 อันดับแรก
     });
 
     if (error) {
@@ -79,7 +82,9 @@ Describe its color palette, pattern (e.g. pinstripe, floral, houndstooth, solid,
     }
 
     if (matchedProducts && matchedProducts.length > 0) {
-      console.log('Matched Product Code via Visual Search:', matchedProducts[0].product_code);
+      console.log('Top Match:', matchedProducts[0].product_code, 'Similarity:', matchedProducts[0].similarity);
+      
+      // ส่งรหัสสินค้าที่ตรงที่สุดอันดับ 1 กลับไปให้หน้าเว็บเพื่อแสดงผล
       res.json({ keyword: matchedProducts[0].product_code });
     } else {
       res.json({ keyword: 'Lining' });
