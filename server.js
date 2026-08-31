@@ -6,6 +6,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const app = express();
 app.use(cors());
 
+// จำกัดขนาดไฟล์ที่ 10MB และเก็บไฟล์ไว้ในหน่วยความจำ
 const upload = multer({ 
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }
@@ -13,7 +14,7 @@ const upload = multer({
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
-// แปลงค่า MIME Type ให้ตรงตามมาตรฐานของ Google API
+// ฟังก์ชันปรับ MIME Type ให้ตรงตามมาตรฐานของ Google API (แก้ปัญหา image/jpg)
 function normalizeMimeType(mimeType) {
   if (!mimeType || mimeType === 'image/jpg') return 'image/jpeg';
   return mimeType;
@@ -21,17 +22,19 @@ function normalizeMimeType(mimeType) {
 
 app.post('/analyzeImage', upload.single('image'), async (req, res) => {
   try {
+    // ตรวจสอบว่ามีการอัปโหลดไฟล์มาหรือไม่
     if (!req.file) {
       return res.status(400).json({ error: 'No image uploaded' });
     }
 
+    // ตรวจสอบ API Key ใน Render
     if (!process.env.GEMINI_API_KEY) {
       console.error('Missing GEMINI_API_KEY environment variable');
       return res.status(500).json({ error: 'Server misconfiguration: Missing API Key' });
     }
 
-    // กำหนดโมเดลเสถียร gemini-2.5-flash และจัดรูปฟอร์แมต Base64
-    const visionModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    // ใช้โมเดล gemini-3.6-flash ตามที่ Google แนะนำล่าสุด
+    const visionModel = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
     const imagePart = {
       inlineData: {
         data: req.file.buffer.toString('base64'),
@@ -59,7 +62,7 @@ If no text or code is visible, reply ONLY with "NO_CODE".`;
       return res.json({ keyword: formattedCode });
     }
 
-    // 2. สกัดคำอธิบายลายและสีผ้า
+    // 2. ถ้าไม่มีตัวหนังสือ ให้สกัดคำอธิบายลายและสีผ้าเป็นภาษาอังกฤษ
     const promptVisual = `Describe the main pattern and colors of this fabric swatch in short keywords for search e.g. "Red pink paisley pattern lining", "Black floral print suiting". Keep it concise under 10 words.`;
 
     const visualResult = await visionModel.generateContent([promptVisual, imagePart]);
