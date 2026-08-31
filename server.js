@@ -2,40 +2,21 @@ const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { createCanvas, loadImage } = require('@napi-rs/canvas');
 
 const app = express();
 app.use(cors());
 
 const upload = multer({ 
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 } // จำกัดไฟล์ไม่เกิน 10MB
+  limits: { fileSize: 10 * 1024 * 1024 }
 });
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
-// ฟังก์ชันย่อภาพและบีบอัดเป็น JPEG ขนาดเล็ก
-async function resizeImageBuffer(inputBuffer) {
-  const img = await loadImage(inputBuffer);
-  const maxDim = 800; // ย่อขนาดด้านยาวสุดไม่เกิน 800px ป้องกัน Token ล้น 100%
-  let width = img.width;
-  let height = img.height;
-
-  if (width > maxDim || height > maxDim) {
-    if (width > height) {
-      height = Math.round((height * maxDim) / width);
-      width = maxDim;
-    } else {
-      width = Math.round((width * maxDim) / height);
-      height = maxDim;
-    }
-  }
-
-  const canvas = createCanvas(width, height);
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(img, 0, 0, width, height);
-
-  return canvas.toBuffer('image/jpeg');
+// แปลงค่า MIME Type ให้ตรงตามมาตรฐานของ Google API
+function normalizeMimeType(mimeType) {
+  if (!mimeType || mimeType === 'image/jpg') return 'image/jpeg';
+  return mimeType;
 }
 
 app.post('/analyzeImage', upload.single('image'), async (req, res) => {
@@ -49,24 +30,16 @@ app.post('/analyzeImage', upload.single('image'), async (req, res) => {
       return res.status(500).json({ error: 'Server misconfiguration: Missing API Key' });
     }
 
-    // ย่อขนาดรูปภาพก่อนส่งให้ Gemini Always
-    let processedBuffer;
-    try {
-      processedBuffer = await resizeImageBuffer(req.file.buffer);
-    } catch (resizeErr) {
-      console.error('Resize failed, using raw buffer:', resizeErr.message);
-      processedBuffer = req.file.buffer;
-    }
-
-    const visionModel = genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
+    // กำหนดโมเดลเสถียร gemini-2.5-flash และจัดรูปฟอร์แมต Base64
+    const visionModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     const imagePart = {
       inlineData: {
-        data: processedBuffer.toString('base64'),
-        mimeType: 'image/jpeg'
+        data: req.file.buffer.toString('base64'),
+        mimeType: normalizeMimeType(req.file.mimetype)
       }
     };
 
-    // 1. ตรวจสอบ OCR
+    // 1. ตรวจสอบ OCR ตัวหนังสือบนรูป
     const promptOCR = `Check if there is any visible product code or text printed on this fabric swatch image (e.g., "JQL 001", "ARS-001", "DES-071"). 
 If found, return ONLY that exact code. 
 If no text or code is visible, reply ONLY with "NO_CODE".`;
@@ -86,8 +59,8 @@ If no text or code is visible, reply ONLY with "NO_CODE".`;
       return res.json({ keyword: formattedCode });
     }
 
-    // 2. สกัดคำอธิบายลายผ้า
-    const promptVisual = `Describe the main pattern and colors of this fabric swatch in short keywords for search e.g. "Purple jacquard paisley pattern lining", "Black floral print suiting". Keep it concise under 10 words.`;
+    // 2. สกัดคำอธิบายลายและสีผ้า
+    const promptVisual = `Describe the main pattern and colors of this fabric swatch in short keywords for search e.g. "Red pink paisley pattern lining", "Black floral print suiting". Keep it concise under 10 words.`;
 
     const visualResult = await visionModel.generateContent([promptVisual, imagePart]);
     const fabricKeyword = visualResult.response.text().trim();
