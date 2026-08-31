@@ -2,17 +2,41 @@ const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const sharp = require('sharp');
+const { createCanvas, loadImage } = require('@napi-rs/canvas');
 
 const app = express();
 app.use(cors());
 
 const upload = multer({ 
   storage: multer.memoryStorage(),
-  limits: { fileSize: 15 * 1024 * 1024 }
+  limits: { fileSize: 10 * 1024 * 1024 } // จำกัดไฟล์ไม่เกิน 10MB
 });
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+
+// ฟังก์ชันย่อภาพและบีบอัดเป็น JPEG ขนาดเล็ก
+async function resizeImageBuffer(inputBuffer) {
+  const img = await loadImage(inputBuffer);
+  const maxDim = 800; // ย่อขนาดด้านยาวสุดไม่เกิน 800px ป้องกัน Token ล้น 100%
+  let width = img.width;
+  let height = img.height;
+
+  if (width > maxDim || height > maxDim) {
+    if (width > height) {
+      height = Math.round((height * maxDim) / width);
+      width = maxDim;
+    } else {
+      width = Math.round((width * maxDim) / height);
+      height = maxDim;
+    }
+  }
+
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, width, height);
+
+  return canvas.toBuffer('image/jpeg');
+}
 
 app.post('/analyzeImage', upload.single('image'), async (req, res) => {
   try {
@@ -25,29 +49,24 @@ app.post('/analyzeImage', upload.single('image'), async (req, res) => {
       return res.status(500).json({ error: 'Server misconfiguration: Missing API Key' });
     }
 
-    let imageBuffer = req.file.buffer;
-    let mimeType = req.file.mimetype;
-
-    // ลองบีบอัดภาพด้วย sharp หากไฟล์ไม่รองรับจะสลับไปใช้ buffer ดั้งเดิมทันที
+    // ย่อขนาดรูปภาพก่อนส่งให้ Gemini Always
+    let processedBuffer;
     try {
-      imageBuffer = await sharp(req.file.buffer)
-        .resize(1024, 1024, { fit: 'inside', withoutEnlargement: true })
-        .jpeg({ quality: 80 })
-        .toBuffer();
-      mimeType = 'image/jpeg';
-    } catch (sharpError) {
-      console.warn('Sharp skip/failed, fallback to original buffer:', sharpError.message);
+      processedBuffer = await resizeImageBuffer(req.file.buffer);
+    } catch (resizeErr) {
+      console.error('Resize failed, using raw buffer:', resizeErr.message);
+      processedBuffer = req.file.buffer;
     }
 
     const visionModel = genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
     const imagePart = {
       inlineData: {
-        data: imageBuffer.toString('base64'),
-        mimeType: mimeType
+        data: processedBuffer.toString('base64'),
+        mimeType: 'image/jpeg'
       }
     };
 
-    // 1. ตรวจสอบ OCR ตัวหนังสือบนรูปก่อน
+    // 1. ตรวจสอบ OCR
     const promptOCR = `Check if there is any visible product code or text printed on this fabric swatch image (e.g., "JQL 001", "ARS-001", "DES-071"). 
 If found, return ONLY that exact code. 
 If no text or code is visible, reply ONLY with "NO_CODE".`;
@@ -67,7 +86,7 @@ If no text or code is visible, reply ONLY with "NO_CODE".`;
       return res.json({ keyword: formattedCode });
     }
 
-    // 2. สกัดคำอธิบายลายและสีผ้าเป็นภาษาอังกฤษ
+    // 2. สกัดคำอธิบายลายผ้า
     const promptVisual = `Describe the main pattern and colors of this fabric swatch in short keywords for search e.g. "Purple jacquard paisley pattern lining", "Black floral print suiting". Keep it concise under 10 words.`;
 
     const visualResult = await visionModel.generateContent([promptVisual, imagePart]);
