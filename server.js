@@ -9,10 +9,9 @@ app.use(cors());
 
 const upload = multer({ 
   storage: multer.memoryStorage(),
-  limits: { fileSize: 15 * 1024 * 1024 } // จำกัดขนาดไฟล์อัปโหลดไม่เกิน 15MB
+  limits: { fileSize: 15 * 1024 * 1024 }
 });
 
-// เรียกใช้ Gemini API Key จาก Environment Variable ของ Render
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 app.post('/analyzeImage', upload.single('image'), async (req, res) => {
@@ -26,17 +25,25 @@ app.post('/analyzeImage', upload.single('image'), async (req, res) => {
       return res.status(500).json({ error: 'Server misconfiguration: Missing API Key' });
     }
 
-    // ย่อขนาดและบีบอัดรูปภาพเพื่อควบคุม Token และเพิ่มความเร็วในการประมวลผล
-    const resizedBuffer = await sharp(req.file.buffer)
-      .resize(1024, 1024, { fit: 'inside', withoutEnlargement: true })
-      .jpeg({ quality: 80 })
-      .toBuffer();
+    let imageBuffer = req.file.buffer;
+    let mimeType = req.file.mimetype;
 
-    const visionModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    // ลองบีบอัดภาพด้วย sharp หากไฟล์ไม่รองรับจะสลับไปใช้ buffer ดั้งเดิมทันที
+    try {
+      imageBuffer = await sharp(req.file.buffer)
+        .resize(1024, 1024, { fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 80 })
+        .toBuffer();
+      mimeType = 'image/jpeg';
+    } catch (sharpError) {
+      console.warn('Sharp skip/failed, fallback to original buffer:', sharpError.message);
+    }
+
+    const visionModel = genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
     const imagePart = {
       inlineData: {
-        data: resizedBuffer.toString('base64'),
-        mimeType: 'image/jpeg'
+        data: imageBuffer.toString('base64'),
+        mimeType: mimeType
       }
     };
 
@@ -60,7 +67,7 @@ If no text or code is visible, reply ONLY with "NO_CODE".`;
       return res.json({ keyword: formattedCode });
     }
 
-    // 2. ถ้าไม่มีตัวหนังสือ ให้สกัดคำอธิบายลายและสีผ้าเป็นภาษาอังกฤษ
+    // 2. สกัดคำอธิบายลายและสีผ้าเป็นภาษาอังกฤษ
     const promptVisual = `Describe the main pattern and colors of this fabric swatch in short keywords for search e.g. "Purple jacquard paisley pattern lining", "Black floral print suiting". Keep it concise under 10 words.`;
 
     const visualResult = await visionModel.generateContent([promptVisual, imagePart]);
