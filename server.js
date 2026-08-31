@@ -22,8 +22,8 @@ app.post('/analyzeImage', upload.single('image'), async (req, res) => {
       return res.status(500).json({ error: 'Server misconfiguration: Missing API Key' });
     }
 
-    // ใช้ Gemini 1.5 Flash สแกนภาพ
-    const visionModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    // อัปเดตชื่อเป็น gemini-1.5-flash-latest เพื่อให้จับคู่กับเวอร์ชัน API ได้ถูกต้อง
+    const visionModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
     const imagePart = {
       inlineData: {
         data: req.file.buffer.toString('base64'),
@@ -61,8 +61,9 @@ If no text or code is visible, reply ONLY with "NO_CODE".`;
     return res.json({ keyword: fabricKeyword });
 
   } catch (error) {
+    // เพิ่ม error.message เพื่อให้ส่งกลับไปแสดงผลบน Postman/Frontend ได้ชัดเจนขึ้น
     console.error('Image analysis error:', error);
-    res.status(500).json({ error: 'Failed to analyze image' });
+    res.status(500).json({ error: `Failed to analyze image: ${error.message}` });
   }
 });
 
