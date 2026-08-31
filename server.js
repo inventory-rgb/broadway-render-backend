@@ -1,7 +1,6 @@
 const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
-const { createClient } = require('@supabase/supabase-js');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
@@ -9,24 +8,8 @@ app.use(cors());
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-// เชื่อมต่อ Supabase
-const supabaseUrl = process.env.SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-// เชื่อมต่อ Gemini API
+// เรียกใช้ Gemini API Key จาก Environment Variable ของ Render
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-
-// ตัวแปรสำหรับโหลดโมเดล Vector ในเซิร์ฟเวอร์
-let embedderPipeline = null;
-
-async function getEmbedder() {
-  if (!embedderPipeline) {
-    const { pipeline } = await import('@xenova/transformers');
-    embedderPipeline = await pipeline('feature-extraction', 'Xenova/bge-base-en-v1.5');
-  }
-  return embedderPipeline;
-}
 
 app.post('/analyzeImage', upload.single('image'), async (req, res) => {
   try {
@@ -34,7 +17,12 @@ app.post('/analyzeImage', upload.single('image'), async (req, res) => {
       return res.status(400).json({ error: 'No image uploaded' });
     }
 
-    // 1. เรียกใช้ Gemini 1.5 Flash วิเคราะห์ภาพ
+    if (!process.env.GEMINI_API_KEY) {
+      console.error('Missing GEMINI_API_KEY environment variable');
+      return res.status(500).json({ error: 'Server misconfiguration: Missing API Key' });
+    }
+
+    // ใช้ Gemini 1.5 Flash สแกนภาพ
     const visionModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
     const imagePart = {
       inlineData: {
@@ -43,8 +31,8 @@ app.post('/analyzeImage', upload.single('image'), async (req, res) => {
       }
     };
 
-    // ขั้นตอน A: อ่าน OCR รหัสสินค้าบนรูปผ้า (ถ้ามี)
-    const promptOCR = `Check if there is any visible product code, model number, or text printed on this fabric swatch image (e.g., "JQL 001", "ARS-001", "DES-071"). 
+    // 1. ตรวจสอบ OCR ตัวหนังสือบนรูปก่อน
+    const promptOCR = `Check if there is any visible product code or text printed on this fabric swatch image (e.g., "JQL 001", "ARS-001", "DES-071"). 
 If found, return ONLY that exact code. 
 If no text or code is visible, reply ONLY with "NO_CODE".`;
 
@@ -55,52 +43,25 @@ If no text or code is visible, reply ONLY with "NO_CODE".`;
       let formattedCode = detectedCode;
       const match = detectedCode.match(/([a-zA-Z]+)[^0-9]*([0-9]+)/);
       if (match) {
-        const prefix = match[1].toUpperCase(); 
-        const number = match[2].padStart(3, '0'); 
-        formattedCode = `${prefix}-${number}`; 
+        const prefix = match[1].toUpperCase();
+        const number = match[2].padStart(3, '0');
+        formattedCode = `${prefix}-${number}`;
       }
-
-      console.log('Original OCR:', detectedCode, '-> Formatted Code:', formattedCode);
+      console.log('OCR Detected:', formattedCode);
       return res.json({ keyword: formattedCode });
     }
 
-    // ขั้นตอน B: ถ้ารูปไม่มีตัวหนังสือ ให้ Gemini สกัดสีและลายผ้าออกเป็นคำอธิบาย
-    const promptVisual = `Analyze this fabric swatch image and describe its visual properties concisely:
-PATTERN & COLOR: [Identify pattern like Paisley, Floral, Plain, Stripe and primary/secondary colors e.g., Black background with orange and purple paisley]
-CATEGORY: [Identify fabric type e.g., Lining, Suiting, Shirting]
-SUBCATEGORY: [e.g., Patterned Lining]
-Focus heavily on color combinations, pattern shapes, and unique visual traits.`;
+    // 2. ถ้าไม่มีตัวหนังสือ ให้สกัดคำอธิบายลายและสีผ้าเป็นภาษาอังกฤษ
+    const promptVisual = `Describe the main pattern and colors of this fabric swatch in short keywords for search e.g. "Purple jacquard paisley pattern lining", "Black floral print suiting". Keep it concise under 10 words.`;
 
     const visualResult = await visionModel.generateContent([promptVisual, imagePart]);
-    const fabricDescription = visualResult.response.text().trim();
-    console.log('Visual Description:', fabricDescription);
+    const fabricKeyword = visualResult.response.text().trim();
 
-    // ขั้นตอน C: แปลงคำอธิบายเป็น Vector ด้วย BGE-Base (โมเดลเดียวกับที่บันทึกใน Supabase)
-    const generateVector = await getEmbedder();
-    const output = await generateVector(fabricDescription, { pooling: 'mean', normalize: true });
-    const queryVector = Array.from(output.data);
-
-    // ขั้นตอน D: ค้นหาใน Supabase ผ่าน RPC function
-    const { data: matchedProducts, error } = await supabase.rpc('match_fabric_products', {
-      query_embedding: queryVector,
-      match_threshold: 0.15,
-      match_count: 5
-    });
-
-    if (error) {
-      console.error('Supabase RPC Error:', error);
-      return res.json({ keyword: 'Lining' });
-    }
-
-    if (matchedProducts && matchedProducts.length > 0) {
-      console.log('Top Match SKU:', matchedProducts[0].sku, 'Similarity:', matchedProducts[0].similarity);
-      return res.json({ keyword: matchedProducts[0].sku });
-    } else {
-      return res.json({ keyword: 'Lining' });
-    }
+    console.log('Visual Keyword Generated:', fabricKeyword);
+    return res.json({ keyword: fabricKeyword });
 
   } catch (error) {
-    console.error('Search error:', error);
+    console.error('Image analysis error:', error);
     res.status(500).json({ error: 'Failed to analyze image' });
   }
 });
