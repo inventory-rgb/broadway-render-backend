@@ -6,7 +6,6 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const app = express();
 app.use(cors());
 
-// จำกัดขนาดไฟล์ที่ 10MB และเก็บไฟล์ไว้ในหน่วยความจำ
 const upload = multer({ 
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }
@@ -14,7 +13,6 @@ const upload = multer({
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
-// ฟังก์ชันปรับ MIME Type ให้ตรงตามมาตรฐานของ Google API (แก้ปัญหา image/jpg)
 function normalizeMimeType(mimeType) {
   if (!mimeType || mimeType === 'image/jpg') return 'image/jpeg';
   return mimeType;
@@ -22,18 +20,16 @@ function normalizeMimeType(mimeType) {
 
 app.post('/analyzeImage', upload.single('image'), async (req, res) => {
   try {
-    // ตรวจสอบว่ามีการอัปโหลดไฟล์มาหรือไม่
     if (!req.file) {
       return res.status(400).json({ error: 'No image uploaded' });
     }
 
-    // ตรวจสอบ API Key ใน Render
     if (!process.env.GEMINI_API_KEY) {
       console.error('Missing GEMINI_API_KEY environment variable');
       return res.status(500).json({ error: 'Server misconfiguration: Missing API Key' });
     }
 
-    // ใช้โมเดล gemini-3.6-flash ตามที่ Google แนะนำล่าสุด
+    // กำหนดใช้ gemini-3.6-flash ตามที่ Google API แจ้งเตือนล่าสุด
     const visionModel = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
     const imagePart = {
       inlineData: {
